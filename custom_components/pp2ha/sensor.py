@@ -27,7 +27,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     session = requests.Session()
 
-    async def login_and_fetch():
+    def login_and_fetch():
+        # 1) 초기 페이지 호출
         r = session.get(INTRO_URL, timeout=10)
         sid = session.cookies.get("JSESSIONID")
         mod = session.cookies.get("cookieRsa")
@@ -56,17 +57,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     coordinator = DataUpdateCoordinator(
         hass,
-        _LOGGER,  # ← 여기에 logging.getLogger이 아니라, _LOGGER를 넘겨줘야 해요!
+        _LOGGER,
         name=f"{DOMAIN}_{entry.entry_id}",
         update_method=lambda: hass.async_add_executor_job(login_and_fetch),
         update_interval=timedelta(minutes=10),
     )
 
-    await coordinator.async_refresh()
-    if coordinator.last_update_success:
-        async_add_entities([KEPCOSensor(coordinator, entry.entry_id)], True)
-
-    return True
 
 class KEPCOSensor(Entity):
     """Representation of KEPCO energy usage sensor."""
