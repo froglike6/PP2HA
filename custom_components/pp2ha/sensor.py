@@ -1,4 +1,5 @@
 # sensor.py
+import logging
 import asyncio
 import binascii
 from datetime import timedelta, date
@@ -17,6 +18,8 @@ from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 
 from .const import DOMAIN, INTRO_URL, LOGIN_URL, CHART_URL
 
+_LOGGER = logging.getLogger(__name__)
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     """Set up sensor platform from a config entry."""
     creds = entry.data
@@ -26,7 +29,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     session = requests.Session()
 
     async def login_and_fetch():
-        # 1) 초기 페이지 호출
         r = session.get(INTRO_URL, timeout=10)
         sid = session.cookies.get("JSESSIONID")
         mod = session.cookies.get("cookieRsa")
@@ -48,7 +50,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         if r2.status_code != 302:
             raise UpdateFailed("로그인 실패")
 
-        # 2) 차트 데이터 조회
         today = date.today().strftime("%Y-%m-%d")
         body = {"SELECT_DT": today, "selectType": "all", "TIME_TYPE": "1"}
         data = session.post(CHART_URL, json=body, timeout=10).json()
@@ -56,26 +57,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     coordinator = DataUpdateCoordinator(
         hass,
-        logging.getLogger(__name__),
-        name=DOMAIN,
+        _LOGGER,
+        name=f"{DOMAIN}_{entry.entry_id}",
         update_method=lambda: hass.async_add_executor_job(login_and_fetch),
         update_interval=timedelta(minutes=10),
     )
 
-    # 최초 한 번 로드
     await coordinator.async_refresh()
     if coordinator.last_update_success:
-        async_add_entities([KEPCOSensor(coordinator)], True)
+        async_add_entities([KEPCOSensor(coordinator, entry.entry_id)], True)
+
+    return True   # ← 이 한 줄이 빠지면 '완료' 신호가 안 가요!
 
 class KEPCOSensor(Entity):
     """Representation of KEPCO energy usage sensor."""
-    def __init__(self, coordinator: DataUpdateCoordinator):
+    def __init__(self, coordinator: DataUpdateCoordinator, entry_id: str):
         self.coordinator = coordinator
         self._state = None
+        self._entry_id = entry_id
+
+    @property
+    def unique_id(self):
+        """각 계정별로 고유하게."""
+        return f"{DOMAIN}_{self._entry_id}"
 
     @property
     def name(self):
-        return f"{DOMAIN} Usage"
+        return f"KEPCO Usage"
+
+    @property
+    def device_info(self):
+        """통합 → 기기 화면에 보이도록."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "KEPCO Meter",
+            "manufacturer": "KEPCO",
+            "model": "Power Planner",
+        }
 
     @property
     def state(self):
@@ -93,5 +111,4 @@ class KEPCOSensor(Entity):
         return self.coordinator.last_update_success
 
     async def async_update(self):
-        """Handle manual updates."""
         await self.coordinator.async_request_refresh()
