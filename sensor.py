@@ -1,44 +1,44 @@
+# sensor.py
 import asyncio
 import binascii
 from datetime import timedelta, date
+
 import requests
 from Cryptodome.PublicKey import RSA
 from Cryptodome.Cipher import PKCS1_v1_5
-import voluptuous as vol
 
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
-from homeassistant.helpers import config_validation as cv
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator, UpdateFailed
 )
+from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 
 from .const import DOMAIN, INTRO_URL, LOGIN_URL, CHART_URL
 
-CONFIG_SCHEMA = vol.Schema({
-    DOMAIN: vol.Schema({
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string,
-    })
-}, extra=vol.ALLOW_EXTRA)
-
-def rsa_encrypt(mod_hex: str, plaintext: str) -> str:
-    pub = RSA.construct((int(mod_hex, 16), 0x10001))
-    return binascii.hexlify(PKCS1_v1_5.new(pub).encrypt(plaintext.encode())).decode()
-
-async def async_setup_platform(hass, config, add_entities, discovery_info=None):
-    credentials = config[DOMAIN]
-    username = credentials[CONF_USERNAME]
-    password = credentials[CONF_PASSWORD]
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
+    """Set up sensor platform from a config entry."""
+    creds = entry.data
+    username = creds[CONF_USERNAME]
+    password = creds[CONF_PASSWORD]
 
     session = requests.Session()
-    # 로그인 로직은 동기 코드라 executor로 감싸줌
+
     async def login_and_fetch():
-        # 1) 로그인
+        # 1) 초기 페이지 호출
         r = session.get(INTRO_URL, timeout=10)
-        sid, mod = session.cookies.get("JSESSIONID"), session.cookies.get("cookieRsa")
+        sid = session.cookies.get("JSESSIONID")
+        mod = session.cookies.get("cookieRsa")
         if not (sid and mod):
             raise UpdateFailed("로그인 쿠키 획득 실패")
+
+        def rsa_encrypt(mod_hex: str, plaintext: str) -> str:
+            pub = RSA.construct((int(mod_hex, 16), 0x10001))
+            return binascii.hexlify(
+                PKCS1_v1_5.new(pub).encrypt(plaintext.encode())
+            ).decode()
+
         payload = {
             "USER_ID": f"{sid}_{rsa_encrypt(mod, username)}",
             "USER_PWD": f"{sid}_{rsa_encrypt(mod, password)}",
@@ -47,6 +47,7 @@ async def async_setup_platform(hass, config, add_entities, discovery_info=None):
         r2 = session.post(LOGIN_URL, data=payload, allow_redirects=False, timeout=10)
         if r2.status_code != 302:
             raise UpdateFailed("로그인 실패")
+
         # 2) 차트 데이터 조회
         today = date.today().strftime("%Y-%m-%d")
         body = {"SELECT_DT": today, "selectType": "all", "TIME_TYPE": "1"}
@@ -55,7 +56,7 @@ async def async_setup_platform(hass, config, add_entities, discovery_info=None):
 
     coordinator = DataUpdateCoordinator(
         hass,
-        _LOGGER,
+        logging.getLogger(__name__),
         name=DOMAIN,
         update_method=lambda: hass.async_add_executor_job(login_and_fetch),
         update_interval=timedelta(minutes=10),
@@ -64,9 +65,10 @@ async def async_setup_platform(hass, config, add_entities, discovery_info=None):
     # 최초 한 번 로드
     await coordinator.async_refresh()
     if coordinator.last_update_success:
-        add_entities([KEPCOSensor(coordinator)], True)
+        async_add_entities([KEPCOSensor(coordinator)], True)
 
 class KEPCOSensor(Entity):
+    """Representation of KEPCO energy usage sensor."""
     def __init__(self, coordinator: DataUpdateCoordinator):
         self.coordinator = coordinator
         self._state = None
@@ -77,7 +79,6 @@ class KEPCOSensor(Entity):
 
     @property
     def state(self):
-        # 마지막 받은 리스트에서 원하는 값만 꺼내오기 (예: 마지막 시각의 kWh)
         data = self.coordinator.data
         if not data:
             return None
@@ -92,5 +93,5 @@ class KEPCOSensor(Entity):
         return self.coordinator.last_update_success
 
     async def async_update(self):
-        # 수동 업데이트 시 coordinator에 위임
+        """Handle manual updates."""
         await self.coordinator.async_request_refresh()
