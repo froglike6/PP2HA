@@ -1,4 +1,3 @@
-# sensor.py
 import logging
 import asyncio
 import binascii
@@ -57,7 +56,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     coordinator = DataUpdateCoordinator(
         hass,
-        _LOGGER,
+        _LOGGER,  # ← 여기에 logging.getLogger이 아니라, _LOGGER를 넘겨줘야 해요!
         name=f"{DOMAIN}_{entry.entry_id}",
         update_method=lambda: hass.async_add_executor_job(login_and_fetch),
         update_interval=timedelta(minutes=10),
@@ -67,7 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     if coordinator.last_update_success:
         async_add_entities([KEPCOSensor(coordinator, entry.entry_id)], True)
 
-    return True   # ← 이 한 줄이 빠지면 '완료' 신호가 안 가요!
+    return True
 
 class KEPCOSensor(Entity):
     """Representation of KEPCO energy usage sensor."""
@@ -78,16 +77,14 @@ class KEPCOSensor(Entity):
 
     @property
     def unique_id(self):
-        """각 계정별로 고유하게."""
         return f"{DOMAIN}_{self._entry_id}"
 
     @property
     def name(self):
-        return f"KEPCO Usage"
+        return "KEPCO Usage"
 
     @property
     def device_info(self):
-        """통합 → 기기 화면에 보이도록."""
         return {
             "identifiers": {(DOMAIN, self._entry_id)},
             "name": "KEPCO Meter",
