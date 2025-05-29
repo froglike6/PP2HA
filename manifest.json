@@ -1,0 +1,14 @@
+{
+  "domain": "pp2ha",
+  "name": "KEPCO Power Planner to Home Assistant",
+  "version": "1.0.0",
+  "documentation": "https://github.com/froglike6/PP2HA",
+  "requirements": [
+    "requests>=2.0",
+    "pycryptodome>=3.0",
+    "beautifulsoup4>=4.0"
+  ],
+  "dependencies": [],
+  "codeowners": ["@froglike6"]
+  "platforms": ["sensor"]
+}
