@@ -1,0 +1,5 @@
+{
+  "name": "KEPCO Power Planner to Home Assistant",
+  "version": "1.0.0",
+  "homeassistant": "2021.12.0"
+}
